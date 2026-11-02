@@ -19,11 +19,12 @@
 # 参数（环境变量或交互输入）：
 #   DOMAIN     节点域名，须有一条直指本机的 A 记录（Cloudflare 用户须关代理/灰云）
 #   CERT_MODE  dns_cf     = Cloudflare DNS-01 签 Let's Encrypt（需 CF_Token）
-#              standalone = HTTP 80 口验证签 ZeroSSL（机器上不留任何 DNS 凭证）
+#              standalone = HTTP 80 口验证（机器上不留任何 DNS 凭证；签发方见 EMAIL）
 #   CF_Token   仅 dns_cf 模式需要；用 Edit zone DNS 模板、只授权目标 zone
 #   NODE_NAME  客户端里显示的节点名，默认由子域名生成（如 node → NODE-HY2）
-#   EMAIL      acme.sh 账户邮箱（Let's Encrypt 模式可留空；ZeroSSL 模式需提供一次，
-#              acme.sh 靠它自动换取 EAB 凭证并记在本机配置里，续期不再问）
+#   EMAIL      acme.sh 账户邮箱（可跳过：填了 standalone 走 ZeroSSL 签发，
+#              acme.sh 靠它自动换取 EAB 凭证并记在本机；跳过则 standalone 自动改走
+#              Let's Encrypt，dns_cf 模式本来就是 Let's Encrypt）
 #   HY2_VERSION 默认 2.13.0
 #
 # 产物：
@@ -111,13 +112,25 @@ if [ "$CERT_MODE" = "dns_cf" ]; then
 fi
 
 if [ -z "$EMAIL" ] && [ "$INTERACTIVE" = "1" ]; then
-  read -rp "acme.sh 账户邮箱（ZeroSSL 模式要拿它注册一次账户、只存本机，LE 模式可回车跳过）: " EMAIL
+  read -rp "acme.sh 账户邮箱（可回车跳过；填了 standalone 走 ZeroSSL，跳过则走 Let's Encrypt）: " EMAIL
 fi
-if [ "$CERT_MODE" = "standalone" ] && [ -z "$EMAIL" ]; then
-  die "standalone（ZeroSSL）注册账户需要一个邮箱（acme.sh 靠它自动换 EAB 凭证）：EMAIL=you@example.com bash hy2-install.sh"
+# standalone 的 CA 选择：有邮箱走 ZeroSSL（acme 靠邮箱自动换 EAB 凭证）；没邮箱自动改走
+# Let's Encrypt——同为 80 口验证、同样不在机器上留 DNS 凭证，只是换个签发方。
+CA_SERVER=""
+if [ "$CERT_MODE" = "standalone" ]; then
+  if [ -n "$EMAIL" ]; then
+    CA_SERVER="zerossl"
+  else
+    CA_SERVER="letsencrypt"
+    echo "→ 未填邮箱，standalone 改走 Let's Encrypt 签发（80 口验证不变）"
+  fi
 fi
 
-NODE_NAME="${NODE_NAME:-$(printf '%s' "${DOMAIN%%.*}" | tr 'a-z' 'A-Z')-HY2}"
+_DEFAULT_NODE="$(printf '%s' "${DOMAIN%%.*}" | tr 'a-z' 'A-Z')-HY2"
+if [ -z "${NODE_NAME:-}" ] && [ "$INTERACTIVE" = "1" ]; then
+  read -rp "节点名（客户端里显示，回车用默认 ${_DEFAULT_NODE}）: " NODE_NAME
+fi
+NODE_NAME="${NODE_NAME:-$_DEFAULT_NODE}"
 
 # ---------- 预检 ----------
 case "$(uname -m)" in
@@ -234,9 +247,13 @@ if [ "$CERT_MODE" = "dns_cf" ]; then
   "$ACME" --set-default-ca --server letsencrypt >/dev/null 2>&1 || true
   echo "→ DNS-01 签发 ${DOMAIN}（Let's Encrypt）"
   "$ACME" --issue --dns dns_cf -d "$DOMAIN" --keylength ec-256
-else
+elif [ "$CA_SERVER" = "zerossl" ]; then
+  "$ACME" --register-account -m "$EMAIL" --server zerossl >/dev/null 2>&1 || true
   echo "→ standalone 签发 ${DOMAIN}（ZeroSSL，80 口验证）"
-  "$ACME" --issue --standalone -d "$DOMAIN" --keylength ec-256
+  "$ACME" --issue --standalone --server zerossl -d "$DOMAIN" --keylength ec-256
+else
+  echo "→ standalone 签发 ${DOMAIN}（Let's Encrypt，80 口验证）"
+  "$ACME" --issue --standalone --server letsencrypt -d "$DOMAIN" --keylength ec-256
 fi
 
 # reloadcmd 会写进 acme 配置：今后续期自动修私钥权限并重启服务
