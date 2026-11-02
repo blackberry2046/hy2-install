@@ -43,6 +43,10 @@ DOMAIN="${DOMAIN:-${1:-}}"
 CERT_MODE="${CERT_MODE:-${2:-}}"
 EMAIL="${EMAIL:-}"
 INTERACTIVE=0; [ -t 0 ] && INTERACTIVE=1
+# 参数模式：域名与证书方式都事先给全（环境变量或位置参数）＝用户已决定不交互，
+# 全程零提问跑完；缺任何一样才进对话逐项补问。
+PARAM_MODE=0
+if [ -n "$DOMAIN" ] && [ -n "$CERT_MODE" ]; then PARAM_MODE=1; fi
 
 red() { printf '\033[31m%s\033[0m\n' "$*"; }
 grn() { printf '\033[32m%s\033[0m\n' "$*"; }
@@ -72,7 +76,7 @@ while :; do
     grn "✓ ${DOMAIN} 已正确解析到本机（${PUBIP}）"
     break
   fi
-  if [ "$INTERACTIVE" != "1" ]; then
+  if [ "$INTERACTIVE" != "1" ] || [ "$PARAM_MODE" = "1" ]; then
     if [ "${CERT_MODE}" = "standalone" ]; then
       die "域名解析 ${DIP:-无} ≠ 本机公网 IP ${PUBIP}，standalone 验证必然失败。先把 A 记录直指本机再跑"
     fi
@@ -102,6 +106,7 @@ fi
 case "$CERT_MODE" in dns_cf|standalone) ;; *) die "CERT_MODE 只能是 dns_cf 或 standalone" ;; esac
 
 if [ "$CERT_MODE" = "dns_cf" ] && [ -z "${CF_Token:-}" ]; then
+  [ "$PARAM_MODE" = "1" ] && die "参数模式下 dns_cf 还需带上 CF_Token 才算给全：CF_Token=xxxx DOMAIN=... CERT_MODE=dns_cf bash ..."
   read -rsp "粘贴 Cloudflare API Token（输入不回显）: " CF_Token; echo
 fi
 if [ "$CERT_MODE" = "dns_cf" ]; then
@@ -111,7 +116,7 @@ if [ "$CERT_MODE" = "dns_cf" ]; then
   export CF_Token
 fi
 
-if [ -z "$EMAIL" ] && [ "$INTERACTIVE" = "1" ]; then
+if [ -z "$EMAIL" ] && [ "$INTERACTIVE" = "1" ] && [ "$PARAM_MODE" = "0" ]; then
   read -rp "acme.sh 账户邮箱（可回车跳过；填了 standalone 走 ZeroSSL，跳过则走 Let's Encrypt）: " EMAIL
 fi
 # standalone 的 CA 选择：有邮箱走 ZeroSSL（acme 靠邮箱自动换 EAB 凭证）；没邮箱自动改走
@@ -127,7 +132,7 @@ if [ "$CERT_MODE" = "standalone" ]; then
 fi
 
 _DEFAULT_NODE="$(printf '%s' "${DOMAIN%%.*}" | tr 'a-z' 'A-Z')-HY2"
-if [ -z "${NODE_NAME:-}" ] && [ "$INTERACTIVE" = "1" ]; then
+if [ -z "${NODE_NAME:-}" ] && [ "$INTERACTIVE" = "1" ] && [ "$PARAM_MODE" = "0" ]; then
   read -rp "节点名（客户端里显示，回车用默认 ${_DEFAULT_NODE}）: " NODE_NAME
 fi
 NODE_NAME="${NODE_NAME:-$_DEFAULT_NODE}"
