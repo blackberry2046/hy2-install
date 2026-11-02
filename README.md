@@ -8,9 +8,7 @@
 bash <(curl -fsSL https://raw.githubusercontent.com/blackberry2046/hy2-install/main/hy2-install.sh)
 ```
 
-就这一行。运行后是交互式的：域名、证书方式、邮箱、节点名一步步问，不需要填的回车就跳过（邮箱跳过时 standalone 自动改走 Let's Encrypt 签发）。
-
-高级用法（可选）：把域名、证书方式换成你自己的写在前面，就是零交互一键跑完（`dns_cf` 模式还要带上 `CF_Token` 才算给全）；缺任何一项，脚本才会停下来问那一项：
+自动化部署：支持参数预先用环境变量传入。
 
 ```bash
 DOMAIN=node.example.com CERT_MODE=standalone bash <(curl -fsSL https://raw.githubusercontent.com/blackberry2046/hy2-install/main/hy2-install.sh)
